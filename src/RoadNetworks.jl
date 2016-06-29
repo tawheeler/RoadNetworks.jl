@@ -1,3 +1,5 @@
+VERSION >= v"0.4.0-dev+6521" && __precompile__(true)
+
 module RoadNetworks
 
 export
@@ -39,7 +41,7 @@ immutable LatLonAlt
     alt :: Float64 # [m]
 
     function LatLonAlt(lat::Float64, lon::Float64, alt::Float64 = 0.0)
-        if lat < -180.0 || lat > 180.0 
+        if lat < -180.0 || lat > 180.0
             warn("latitude out of range: $lat")
         elseif lon < -90.0 || lon > 90.0
             warn("longitude out of range: $lon")
@@ -52,7 +54,7 @@ end
 
 type RNDF_Lane
     id             :: LaneID
-    
+
     width          :: Float64 # > 0, optional
     speed_limit    :: (Float64, Float64) # [mph] speed_limit MAX MIN allowed in segment
     boundary_left  :: Symbol # ∈ {:double_yellow, :solid_yellow, :solid_white, :broken_white, :unknown}
@@ -62,7 +64,7 @@ type RNDF_Lane
     merge_end_link :: (Int, WaypointID) # (id → id2)
     stops          :: Vector{Int} # list of waypoints associated with stop signs
     exits          :: Vector{(Int, WaypointID)} # list of waypoints associated with exits
-    
+
     waypoints      :: Dict{Int, LatLonAlt} # col is <lat,lon>
 
     function RNDF_Lane(id::LaneID = LaneID(-1,-1))
@@ -94,7 +96,7 @@ type RNDF
 
     RNDF() = new("UNNAMED","","", Dict{Int, RNDF_Segment}())
 end
-    
+
 # functions
 # ==============================================
 
@@ -155,18 +157,18 @@ function add_lane!(rndf::RNDF, lane::RNDF_Lane)
     return rndf
 end
 function add_lane!(rndf::RNDF, segment_id::Integer, lane_id::Integer)
-    
+
     add_lane!(rndf, LaneID(segment_id, lane_id))
 end
 
 function add_waypoint!(lane::RNDF_Lane, waypoint::WaypointID, lla::LatLonAlt; override::Bool=false)
     (lane.id.lane == waypoint.lane && lane.id.segment == waypoint.segment) || error("waypoint $waypoint does not match lane $(lane.id)")
-    override || !haskey(lane.waypoints, waypoint.pt) || error("lane $(lane.id) already contains waypoint $(waypoint)") 
+    override || !haskey(lane.waypoints, waypoint.pt) || error("lane $(lane.id) already contains waypoint $(waypoint)")
     lane.waypoints[waypoint.id] = lla
     return lane
 end
 function add_waypoint!(lane::RNDF_Lane, pt_id::Integer, lla::LatLonAlt; override::Bool=false)
-    override || !haskey(lane.waypoints, pt_id) || error("lane already contains waypoint $(pt_pt)") 
+    override || !haskey(lane.waypoints, pt_id) || error("lane already contains waypoint $(pt_pt)")
     lane.waypoints[pt_id] = lla
     return lane
 end
@@ -252,7 +254,7 @@ function load_rndf( filepath::String )
         @assert(length(matches) == 3)
         WaypointID(uint(matches[1]), uint(matches[2]), uint(matches[3]))
     end
-    
+
     rndf = RNDF()
 
     num_segments = -1
@@ -264,7 +266,7 @@ function load_rndf( filepath::String )
 
     predicted_num_lanes = Dict{Int,Int}() # seg_id -> n_lanes
     predicted_num_waypoints = Dict{LaneID,Int}() # seg_id -> n_lanes
-    
+
     for line in lines
         if beginswith(line, "RNDF_name")
             if rndf.name != "UNNAMED"
