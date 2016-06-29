@@ -27,13 +27,13 @@ const VERBOSITY = 0
 # ==============================================
 
 immutable LaneID
-    segment :: Uint
-    lane    :: Uint
+    segment :: UInt
+    lane    :: UInt
 end
 immutable WaypointID
-    segment :: Uint
-    lane    :: Uint
-    pt      :: Uint
+    segment :: UInt
+    lane    :: UInt
+    pt      :: UInt
 end
 immutable LatLonAlt
     lat :: Float64 # [deg]
@@ -56,14 +56,14 @@ type RNDF_Lane
     id             :: LaneID
 
     width          :: Float64 # > 0, optional
-    speed_limit    :: (Float64, Float64) # [mph] speed_limit MAX MIN allowed in segment
+    speed_limit    :: Tuple{Float64, Float64} # [mph] speed_limit MAX MIN allowed in segment
     boundary_left  :: Symbol # ∈ {:double_yellow, :solid_yellow, :solid_white, :broken_white, :unknown}
     boundary_right :: Symbol # ∈ {:double_yellow, :solid_yellow, :solid_white, :broken_white, :unknown}
     # checkpoints    :: Vector{(Int, Int)} # list of checkpoints (index, checkpoint_id)
-    merge_link     :: (Int, WaypointID) # (id → id2) denotes a section of road where merging logic may be used
-    merge_end_link :: (Int, WaypointID) # (id → id2)
+    merge_link     :: Tuple{Int, WaypointID} # (id → id2) denotes a section of road where merging logic may be used
+    merge_end_link :: Tuple{Int, WaypointID} # (id → id2)
     stops          :: Vector{Int} # list of waypoints associated with stop signs
-    exits          :: Vector{(Int, WaypointID)} # list of waypoints associated with exits
+    exits          :: Vector{Tuple{Int, WaypointID}} # list of waypoints associated with exits
 
     waypoints      :: Dict{Int, LatLonAlt} # col is <lat,lon>
 
@@ -76,22 +76,22 @@ type RNDF_Lane
         self.merge_link = (0,WaypointID(0,0,0))
         self.merge_end_link = (0,WaypointID(0,0,0))
         self.stops = Int[]
-        self.exits = (Int, WaypointID)[]
+        self.exits = Tuple{Int, WaypointID}[]
         self.waypoints = Dict{Int, LatLonAlt}()
         self
     end
 end
 type RNDF_Segment
     id         :: Int # > 0
-    name       :: String # optional
+    name       :: AbstractString # optional
     lanes      :: Dict{Int, RNDF_Lane} # id -> lane
 
     RNDF_Segment(id::Int = -1) = new(id,"",Dict{Int, RNDF_Lane}())
 end
 type RNDF
-    name           :: String
-    format_version :: String # optional
-    creation_date  :: String # optional
+    name           :: AbstractString
+    format_version :: AbstractString # optional
+    creation_date  :: AbstractString # optional
     segments       :: Dict{Int, RNDF_Segment} # id -> segment
 
     RNDF() = new("UNNAMED","","", Dict{Int, RNDF_Segment}())
@@ -109,8 +109,8 @@ get_lane(rndf::RNDF, id::LaneID) = rndf.segments[id.segment].lanes[id.lane]::RND
 get_lane(rndf::RNDF, id::WaypointID) = rndf.segments[id.segment].lanes[id.lane]::RNDF_Lane
 get_waypoint(rndf::RNDF, id::WaypointID) = rndf.segments[id.segment].lanes[id.lane].waypoints[id.pt]::LatLonAlt
 
-hash(id::LaneID, h::Uint=zero(Uint)) = hash(id.segment, hash(id.lane, h))
-hash(id::WaypointID, h::Uint=zero(Uint)) = hash(id.segment, hash(id.lane, hash(id.pt, h)))
+hash(id::LaneID, h::UInt=zero(UInt)) = hash(id.segment, hash(id.lane, h))
+hash(id::WaypointID, h::UInt=zero(UInt)) = hash(id.segment, hash(id.lane, hash(id.pt, h)))
 
 function add_segment!(rndf::RNDF, id::Int)
     !haskey(rndf.segments, id) || error("rndf already has segment $id")
@@ -215,7 +215,7 @@ function has_lane(rndf::RNDF, id::WaypointID)
 end
 has_segment(rndf::RNDF, id::Int) = return haskey(rndf.segments, id)
 
-function load_rndf( filepath::String )
+function load_rndf( filepath::AbstractString )
     # Loads a Road Network file
     # input:
     #    - filepath: the rndf text file to load
@@ -226,33 +226,33 @@ function load_rndf( filepath::String )
     close(fin)
 
     readparam(str::ASCIIString) = str[searchindex(str, " ")+1:end-1]
-    function readparam(str::ASCIIString, param_name::String, S::Type{Int})
-        @assert(beginswith(str, param_name))
-        return int(str[searchindex(str, " ")+1:end-1])
+    function readparam(str::ASCIIString, param_name::AbstractString, S::Type{Int})
+        @assert(startswith(str, param_name))
+        return parse(Int, str[searchindex(str, " ")+1:end-1])
     end
-    function readparam(str::ASCIIString, param_name::String, S::Type{Float64})
-        @assert(beginswith(str, param_name))
-        return float(str[searchindex(str, " ")+1:end-1])
+    function readparam(str::ASCIIString, param_name::AbstractString, S::Type{Float64})
+        @assert(startswith(str, param_name))
+        return parse(Float64, str[searchindex(str, " ")+1:end-1])
     end
-    function readparam(str::ASCIIString, param_name::String, S::Type{String})
-        @assert(beginswith(str, param_name))
+    function readparam(str::ASCIIString, param_name::AbstractString, S::Type{AbstractString})
+        @assert(startswith(str, param_name))
         return str[searchindex(str, " ")+1:end-1]
     end
-    function readparam(str::ASCIIString, param_name::String, S::Type{LaneID})
-        @assert(beginswith(str, param_name))
+    function readparam(str::ASCIIString, param_name::AbstractString, S::Type{LaneID})
+        @assert(startswith(str, param_name))
         str = str[searchindex(str, " ")+1:end-1]
         @assert(ismatch(REGEX_LANEID, str))
         matches = matchall(r"\d+", str)
         @assert(length(matches) == 2)
-        LaneID(uint(matches[1]), uint(matches[2]))
+        LaneID(parse(UInt, matches[1]), parse(UInt, matches[2]))
     end
-    function readparam(str::ASCIIString, param_name::String, S::Type{WaypointID})
-        @assert(beginswith(str, param_name))
+    function readparam(str::ASCIIString, param_name::AbstractString, S::Type{WaypointID})
+        @assert(startswith(str, param_name))
         str = str[searchindex(str, " ")+1:end-1]
         @assert(ismatch(REGEX_WAYPOINT, str))
         matches = matchall(r"\d+", str)
         @assert(length(matches) == 3)
-        WaypointID(uint(matches[1]), uint(matches[2]), uint(matches[3]))
+        WaypointID(parse(UInt, matches[1]), parse(UInt, matches[2]), parse(UInt, matches[3]))
     end
 
     rndf = RNDF()
@@ -261,14 +261,14 @@ function load_rndf( filepath::String )
     num_zones = -1
     n_lines_skipped = 0
 
-    current_segment::Union(Nothing, RNDF_Segment) = nothing
-    current_lane::Union(Nothing, RNDF_Lane) = nothing
+    current_segment::Union{Void, RNDF_Segment} = nothing
+    current_lane::Union{Void, RNDF_Lane} = nothing
 
     predicted_num_lanes = Dict{Int,Int}() # seg_id -> n_lanes
     predicted_num_waypoints = Dict{LaneID,Int}() # seg_id -> n_lanes
 
     for line in lines
-        if beginswith(line, "RNDF_name")
+        if startswith(line, "RNDF_name")
             if rndf.name != "UNNAMED"
                 print_with_color(:red, "overwriting RNDF name $(rndf.name)\n")
             end
@@ -276,7 +276,7 @@ function load_rndf( filepath::String )
             if VERBOSITY > 0
                 println("RNDF name: ", rndf.name)
             end
-        elseif beginswith(line, "num_segments")
+        elseif startswith(line, "num_segments")
             if num_segments != -1
                 print_with_color(:red, "overwriting num_segments $num_segments\n")
             end
@@ -284,7 +284,7 @@ function load_rndf( filepath::String )
             if VERBOSITY > 0
                 println("num_segments: ", num_segments)
             end
-        elseif beginswith(line, "num_zones")
+        elseif startswith(line, "num_zones")
             if num_zones != -1
                 print_with_color(:red, "overwriting num_zones $num_zones\n")
             end
@@ -292,17 +292,17 @@ function load_rndf( filepath::String )
             if VERBOSITY > 0
                 println("num_zones: ", num_zones)
             end
-        elseif beginswith(line, "format_version")
+        elseif startswith(line, "format_version")
             if rndf.format_version != ""
                 print_with_color(:red, "overwriting format version $(rndf.format_version)\n")
             end
             rndf.format_version = readparam(line)
-        elseif beginswith(line, "creation_date")
+        elseif startswith(line, "creation_date")
             if rndf.creation_date != ""
                 print_with_color(:red, "overwriting creation date $(rndf.creation_date)\n")
             end
             rndf.creation_date = readparam(line)
-        elseif beginswith(line, "segment ")
+        elseif startswith(line, "segment ")
             seg_index = readparam(line, "segment", Int)
             if !haskey(rndf.segments, seg_index)
                 add_segment!(rndf, seg_index)
@@ -312,14 +312,14 @@ function load_rndf( filepath::String )
             if VERBOSITY > 0
                 println("\tsegment: ", seg_index)
             end
-        elseif beginswith(line, "segment_name")
+        elseif startswith(line, "segment_name")
             name = readparam(line)
             if current_segment == nothing
                 print_with_color(:red, "no current segment for segment name $name")
             else
                 current_segment.name = name
             end
-        elseif beginswith(line, "num_lanes")
+        elseif startswith(line, "num_lanes")
             if current_segment == nothing
                 print_with_color(:red, "no current segment for segment name $name")
             else
@@ -328,14 +328,14 @@ function load_rndf( filepath::String )
                 end
                 predicted_num_lanes[current_segment.id] = readparam(line, "num_lanes", Int)
             end
-        elseif beginswith(line, "lane ")
+        elseif startswith(line, "lane ")
             lane_id = readparam(line, "lane", LaneID)
             add_lane!(rndf, lane_id)
             current_lane = get_lane(rndf, lane_id)
             if VERBOSITY > 0
                 println("\t\tlane ", lane_id)
             end
-        elseif beginswith(line, "num_waypoints")
+        elseif startswith(line, "num_waypoints")
             if current_lane == nothing
                 print_with_color(:red, "no current lane for num_waypoints")
             else
@@ -344,7 +344,7 @@ function load_rndf( filepath::String )
                 end
                 predicted_num_waypoints[current_lane.id] = readparam(line, "num_waypoints", Int)
             end
-        elseif beginswith(line, "lane_width")
+        elseif startswith(line, "lane_width")
             if current_lane == nothing
                 print_with_color(:red, "no current lane to assign lane width to\n")
             else
@@ -353,7 +353,7 @@ function load_rndf( filepath::String )
                 end
                 current_lane.width = readparam(line, "lane_width", Float64)
             end
-        elseif beginswith(line, "speed_limit")
+        elseif startswith(line, "speed_limit")
             if current_lane == nothing
                 # TODO - allow this to affect segments
                 print_with_color(:red, "no current lane to assign speed limit to\n")
@@ -364,7 +364,7 @@ function load_rndf( filepath::String )
                 matches = matchall(r"\d+", line)
                 current_lane.speed_limit = (float(matches[1]), float(matches[1]))
             end
-        elseif beginswith(line, "exit ")
+        elseif startswith(line, "exit ")
             if current_lane == nothing
                 print_with_color(:red, "no current lane to assign exit to")
             else
@@ -398,11 +398,11 @@ function load_rndf( filepath::String )
             matches = matchall(REGEX_UTM_FLOAT, line)
             lla = LatLonAlt(float(matches[1]), float(matches[2]))
             add_waypoint!(rndf, pt, lla, override=true)
-        elseif beginswith(line, "end_file")
+        elseif startswith(line, "end_file")
             if line != lines[end]
                 print_with_color(:red, "end_file does not coincide with end of file\n")
             end
-        elseif beginswith(line, "merge_link")
+        elseif startswith(line, "merge_link")
             matches = matchall(REGEX_WAYPOINT, line)
             w_start = parse_waypoint(matches[1])
             w_end = parse_waypoint(matches[2])
@@ -417,7 +417,7 @@ function load_rndf( filepath::String )
             if VERBOSITY > 1
                 println("\t\t\tmerge_link: ", w_start, " →  ", w_end)
             end
-        elseif beginswith(line, "merge_end_link")
+        elseif startswith(line, "merge_end_link")
             matches = matchall(REGEX_WAYPOINT, line)
             w_start = parse_waypoint(matches[1])
             w_end = parse_waypoint(matches[2])
@@ -432,7 +432,7 @@ function load_rndf( filepath::String )
             if VERBOSITY > 1
                 println("\t\t\tmerge_end_link: ", w_start, " →  ", w_end)
             end
-        elseif !beginswith(line, "end_segment") && !beginswith(line, "end_lane") && !beginswith(line, "checkpoint")
+        elseif !startswith(line, "end_segment") && !startswith(line, "end_lane") && !startswith(line, "checkpoint")
             n_lines_skipped += 1
             print_with_color(:red, "UNKNOWN LIME FORMAT: ", line)
         end
@@ -472,11 +472,11 @@ function load_rndf( filepath::String )
     return rndf
 end
 
-function parse_waypoint(str::String)
+function parse_waypoint(str::AbstractString)
     # parses x.y.z, x,y,z ∈ integer > 0
     @assert ismatch(REGEX_WAYPOINT, str)
     ints = matchall(r"\d+", str)
-    WaypointID(uint(ints[1]), uint(ints[2]), uint(ints[3]))
+    WaypointID(parse(UInt, ints[1]), parse(UInt, ints[2]), parse(UInt, ints[3]))
 end
 
 end # module
