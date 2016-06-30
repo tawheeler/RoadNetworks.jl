@@ -41,9 +41,9 @@ immutable LatLonAlt
     alt :: Float64 # [m]
 
     function LatLonAlt(lat::Float64, lon::Float64, alt::Float64 = 0.0)
-        if lat < -180.0 || lat > 180.0
+        if lat < -90.0 || lat > 90.0
             warn("latitude out of range: $lat")
-        elseif lon < -90.0 || lon > 90.0
+        elseif lon < -180.0 || lon > 180.0
             warn("longitude out of range: $lon")
         elseif alt < -400.0 || alt > 9000.0
             warn("altitude out of range: $alt")
@@ -100,9 +100,9 @@ end
 # functions
 # ==============================================
 
-show(io::IO, id::LaneID) = @printf(io, "%d.%d", int(id.segment), int(id.lane))
-show(io::IO, id::WaypointID) = @printf(io, "%d.%d.%d", int(id.segment), int(id.lane), int(id.pt))
-show(io::IO, pt::LatLonAlt) = @printf(io, "(%8.4f, %9.4f, %8.2f)", int(pt.lat), int(pt.lat), int(pt.lat))
+show(io::IO, id::LaneID) = @printf(io, "%d.%d", convert(Int, id.segment), convert(Int, id.lane))
+show(io::IO, id::WaypointID) = @printf(io, "%d.%d.%d", convert(Int, id.segment), convert(Int, id.lane), convert(Int, id.pt))
+show(io::IO, pt::LatLonAlt) = @printf(io, "(%8.4f, %9.4f, %8.2f)", convert(Int, pt.lat), convert(Int, pt.lat), convert(Int, pt.lat))
 
 get_segment(rndf::RNDF, id::Int) = rndf.segments[id]::RNDF_Segment
 get_lane(rndf::RNDF, id::LaneID) = rndf.segments[id.segment].lanes[id.lane]::RNDF_Lane
@@ -129,8 +129,10 @@ function add_lane!(seg::RNDF_Segment, id::LaneID)
     return seg
 end
 function add_lane!(seg::RNDF_Segment, lane_id::Integer)
-
     add_lane!(seg, LaneID(seg.id, lane_id))
+end
+function add_lane!(seg::RNDF_Segment, id::WaypointID)
+    add_lane!(seg, LaneID(id.segment, id.lane))
 end
 function add_lane!(rndf::RNDF, id::LaneID)
     if !haskey(rndf.segments, id.segment)
@@ -315,16 +317,16 @@ function load_rndf( filepath::AbstractString )
         elseif startswith(line, "segment_name")
             name = readparam(line)
             if current_segment == nothing
-                print_with_color(:red, "no current segment for segment name $name")
+                print_with_color(:red, "no current segment for segment name $name\n")
             else
                 current_segment.name = name
             end
         elseif startswith(line, "num_lanes")
             if current_segment == nothing
-                print_with_color(:red, "no current segment for segment name $name")
+                print_with_color(:red, "no current segment for segment name $name\n")
             else
                 if haskey(predicted_num_lanes, current_segment.id)
-                    print_with_color(:red, "ovewriting predicted num lanes for segment $(current_segment.id)")
+                    print_with_color(:red, "ovewriting predicted num lanes for segment $(current_segment.id)\n")
                 end
                 predicted_num_lanes[current_segment.id] = readparam(line, "num_lanes", Int)
             end
@@ -340,7 +342,7 @@ function load_rndf( filepath::AbstractString )
                 print_with_color(:red, "no current lane for num_waypoints")
             else
                 if haskey(predicted_num_waypoints, current_lane.id)
-                    print_with_color(:red, "ovewriting predicted num waypoints for lane $(current_lane.id)")
+                    print_with_color(:red, "ovewriting predicted num waypoints for lane $(current_lane.id)\n")
                 end
                 predicted_num_waypoints[current_lane.id] = readparam(line, "num_waypoints", Int)
             end
@@ -382,7 +384,7 @@ function load_rndf( filepath::AbstractString )
                 println(pt)
             end
             if has_waypoint(rndf, pt)
-                print_with_color(:red, "overwriting waypoint $(pt)")
+                print_with_color(:red, "overwriting waypoint $(pt)\n")
             end
             matches = matchall(REGEX_UTM_FLOAT, line)
             lla = LatLonAlt(float(matches[1]), float(matches[2]), float(matches[3]))
@@ -393,7 +395,7 @@ function load_rndf( filepath::AbstractString )
                 println(pt)
             end
             if has_waypoint(rndf, pt)
-                print_with_color(:red, "overwriting waypoint $(pt)")
+                print_with_color(:red, "overwriting waypoint $(pt)\n")
             end
             matches = matchall(REGEX_UTM_FLOAT, line)
             lla = LatLonAlt(float(matches[1]), float(matches[2]))
