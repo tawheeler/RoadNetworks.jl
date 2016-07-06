@@ -2,13 +2,16 @@ VERSION >= v"0.4.0-dev+6521" && __precompile__(true)
 
 module RoadNetworks
 
+using Vec
+
 export
     RNDF,
     RNDF_Segment,
     RNDF_Lane,
     WaypointID,
     LaneID,
-    load_rndf
+    load_rndf,
+    write_dxf
 
 import Base: show, hash
 
@@ -143,7 +146,7 @@ function add_lane!(rndf::RNDF, id::LaneID)
 end
 function add_lane!(rndf::RNDF, id::WaypointID)
     if !haskey(rndf.segments, id.segment)
-        add_segment!(rndf, id.segment)
+        add_segment!(rndf, convert(Int, id.segment))
     end
     add_lane!(rndf.segments[id.segment], id)
     return rndf
@@ -151,7 +154,7 @@ end
 function add_lane!(rndf::RNDF, lane::RNDF_Lane)
     seg_id, lane_id = lane.id.segment, lane.id.lane
     if !haskey(rndf.segments, seg_id)
-        add_segment!(rndf, seg_id)
+        add_segment!(rndf, convert(Int, seg_id))
     end
     seg = rndf.segments[seg_id]
     !haskey(seg.lanes, lane_id) || error("segment already has lane $lane_id")
@@ -479,6 +482,166 @@ function parse_waypoint(str::AbstractString)
     @assert ismatch(REGEX_WAYPOINT, str)
     ints = matchall(r"\d+", str)
     WaypointID(parse(UInt, ints[1]), parse(UInt, ints[2]), parse(UInt, ints[3]))
+end
+
+function write_lwpolyline(io::IO, pts::Matrix{Float64}, handle_int::Int, is_closed::Bool=false)
+    N = size(pts, 2)
+    println(io, "  0")
+    println(io, "LWPOLYLINE")
+    println(io, "  5") # handle (increases)
+    @printf(io, "B%d\n", handle_int)
+    println(io, "100") # subclass marker
+    println(io, "AcDbEntity")
+    println(io, "  8") # layer name
+    println(io, "150")
+    println(io, "  6") # linetype name
+    println(io, "ByLayer")
+    println(io, " 62") # color number
+    println(io, "  256")
+    println(io, "370") # lineweight enum
+    println(io, "   -1")
+    println(io, "100") # subclass marker
+    println(io, "AcDbPolyline")
+    println(io, " 90") # number of vertices
+    @printf(io, "   %d\n", N)
+    println(io, " 70") # 0 is default, 1 is closed
+    @printf(io, "    %d\n", is_closed ? 1 : 0)
+    println(io, " 43") # 0 is constant width
+    println(io, "0")
+
+    for i in 1 : N
+        println(io, " 10")
+        @printf(io, "%.3f\n", pts[1,i])
+        println(io, " 20")
+        @printf(io, "%.3f\n", pts[2,i])
+    end
+end
+
+"""
+    write_dxf(io::IO, rndf::RNDF)
+Writes the rndf as a DXF
+"""
+function write_dxf(io::IO, rndf::RNDF;
+    convert_ll2utm::Bool=true,
+    edge_dist_threshold::Float64=50.0, # minimuim distance between lane pts [m]
+    cycle_connection_threshold::Float64=6.25, # minimum distance below which lanes will be connected as loops
+    )
+
+    lines = open(readlines, Pkg.dir("RoadNetworks", "src", "template.dxf"))
+    i = findfirst(lines, "ENTITIES\n")
+    i != 0 || error("ENTITIES section not found")
+
+    # write out header
+    for j in 1 : i
+        print(io, lines[j])
+    end
+    # write out the lanes
+    node_map = Dict{WaypointID, VecE2}() # id -> utm pos
+    handle_int = 0
+    for segment in values(rndf.segments)
+        for lane in values(segment.lanes)
+
+            pts = Array(Float64, 2, length(lane.waypoints))
+
+            image_index = 0
+            for (waypoint_index,lla) in lane.waypoints
+                image_index += 1
+                lat, lon = lla.lat, lla.lon
+                if convert_ll2utm
+                    utm = convert(UTM, Vec.LatLonAlt(deg2rad(lat), deg2rad(lon), NaN))
+                    eas, nor = utm.e, utm.n
+                else
+                    eas, nor = lat, lon
+                end
+
+                node_map[WaypointID(segment.id, lane.id.lane, waypoint_index)] = VecE2(eas, nor)
+                pts[1, image_index] = eas
+                pts[2, image_index] = nor
+            end
+
+            # starting with a root node, find the next closest node to either end of the chain
+            # to build the path
+            root_bot = 1 # [index in pts]
+            root_top = 1 # [index in pts]
+            ids_yet_to_take = Set(collect(2:size(pts, 2)))
+            new_order = Int[1]
+            while !isempty(ids_yet_to_take)
+                closest_node_to_bot = -1 # index in ids
+                best_dist_bot = Inf
+                closest_node_to_top = -1 # index in ids
+                best_dist_top = Inf
+
+                Tn, Te = pts[1,root_top], pts[2,root_top]
+                Bn, Be = pts[1,root_bot], pts[2,root_bot]
+
+                for id in ids_yet_to_take
+                    index_n, index_e = pts[1,id], pts[2,id]
+                    dnT, deT = Tn-index_n, Te-index_e
+                    dnB, deB = Bn-index_n, Be-index_e
+                    distT = sqrt(dnT*dnT + deT*deT)
+                    distB = sqrt(dnB*dnB + deB*deB)
+                    if distT < best_dist_top
+                        best_dist_top, closest_node_to_top = distT, id
+                    end
+                    if distB < best_dist_bot
+                        best_dist_bot, closest_node_to_bot = distB, id
+                    end
+                end
+
+                @assert(min(best_dist_top, best_dist_bot) < edge_dist_threshold)
+                if best_dist_bot < best_dist_top
+                    root_bot = closest_node_to_bot
+                    delete!(ids_yet_to_take, root_bot)
+                    unshift!(new_order, closest_node_to_bot)
+                else
+                    root_top = closest_node_to_top
+                    delete!(ids_yet_to_take, root_top)
+                    push!(new_order, closest_node_to_top)
+                end
+            end
+
+            # infer direction from whether ids are generally increasing or decreasing
+            # order pts in increasing order
+            ids_generally_increasing = sum([(new_order[i] - new_order[i-1] > 0.0) for i in 2:length(new_order)]) > 0.0
+            if ids_generally_increasing
+                pts[:,:] = pts[:,reverse!(new_order)]
+            else
+                pts[:,:] = pts[:,new_order]
+            end
+
+            # if this is a cycle - connect it
+            # TODO(tim): use direction to infer whether this is correct
+            Tn, Te = pts[1,1], pts[2,1]
+            Bn, Be = pts[1,end], pts[2,end]
+            is_closed = (norm([Tn-Bn, Te-Be]) < cycle_connection_threshold)
+
+            write_lwpolyline(io, pts, handle_int, is_closed)
+            handle_int += 1
+        end
+    end
+
+    # add exit edges
+    for segment in values(rndf.segments)
+        for lane in values(segment.lanes)
+            for (exitnode, entry) in lane.exits
+                @assert(haskey(node_map, entry))
+                exit_waypoint = WaypointID(segment.id, lane.id.lane, exitnode)
+                if haskey(node_map, exit_waypoint)
+                    pos1 = node_map[exit_waypoint]
+                    pos2 = node_map[entry]
+
+                    pts = Float64[pos1.x  pos2.x; pos1.y  pos2.y]
+                    write_lwpolyline(io, pts, handle_int, false)
+                    handle_int += 1
+                end
+            end
+        end
+    end
+
+    # write out tail
+    for j in i+1 : length(lines)
+        print(io, lines[j])
+    end
 end
 
 end # module
